@@ -22,11 +22,21 @@ const (
 )
 
 type program struct {
-	intCodes          []int
-	intCodesOriginal  []int
+	intCodes          []int64
+	intCodesOriginal  []int64
 	pos               int
 	currentOpCode     int
 	currentParamTypes [2]int
+	complete          bool
+	output            int64
+	outputCalculated  bool
+}
+
+type input struct {
+	noun   int64
+	verb   int64
+	prompt []int64
+	auto   bool
 }
 
 func readProgram(file string) (program, error) {
@@ -38,15 +48,15 @@ func readProgram(file string) (program, error) {
 	defer f.Close()
 
 	var (
-		intCodes         []int
-		intcodesOriginal []int
+		intCodes         []int64
+		intcodesOriginal []int64
 	)
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		text := scanner.Text()
 		vals := strings.Split(text, ",")
 		for _, val := range vals {
-			valInt, err := strconv.Atoi(val)
+			valInt, err := strconv.ParseInt(val, 10, 64)
 			if err != nil {
 				return program{}, err
 			}
@@ -59,12 +69,14 @@ func readProgram(file string) (program, error) {
 
 }
 
-func (p program) run(noun, verb int) int {
+func (p *program) run(input input) {
+	var (
+		inputCount int
+	)
 
-	defer func() { p.reset() }()
+	p.intCodes[1] = input.noun
+	p.intCodes[2] = input.verb
 
-	p.intCodes[1] = noun
-	p.intCodes[2] = verb
 	for {
 
 		p.parseOpcode()
@@ -80,8 +92,12 @@ func (p program) run(noun, verb int) int {
 		}
 
 		if p.currentOpCode == INPUT {
-			result := p.handleInputOpcode()
+			result, err := p.handleInputOpcode(input.prompt, inputCount, input.auto)
+			if err != nil {
+				return
+			}
 			p.updateResult(result)
+			inputCount++
 		}
 
 		if p.currentOpCode == OUTPUT {
@@ -89,7 +105,7 @@ func (p program) run(noun, verb int) int {
 		}
 
 		if p.currentOpCode == LESS_THAN {
-			var result int
+			var result int64
 			if p.getLeftOperand(p.currentParamTypes[0]) < p.getRightOperand(p.currentParamTypes[1]) {
 				result = 1
 			}
@@ -97,7 +113,7 @@ func (p program) run(noun, verb int) int {
 		}
 
 		if p.currentOpCode == EQUALS {
-			var result int
+			var result int64
 			if p.getLeftOperand(p.currentParamTypes[0]) == p.getRightOperand(p.currentParamTypes[1]) {
 				result = 1
 			}
@@ -105,7 +121,8 @@ func (p program) run(noun, verb int) int {
 		}
 
 		if p.currentOpCode == HALT {
-			return p.intCodes[0]
+			p.complete = true
+			return
 		}
 
 		p.advance()
@@ -113,47 +130,44 @@ func (p program) run(noun, verb int) int {
 	}
 }
 
-func (p *program) handleInputOpcode() int {
-	fmt.Println("Enter Code")
-	reader := bufio.NewReader(os.Stdin)
-	input, _ := reader.ReadString('\n')
-	code, _ := strconv.Atoi(strings.Trim(input, "\n"))
-	return code
-
-}
-
-func (p program) tryUntil(match int) int {
-	for noun := 0; noun < 100; noun++ {
-		for verb := 0; verb < 100; verb++ {
-			result := p.run(int(noun), int(verb))
-			if result == match {
-				return 100*noun + verb
-			}
+func (p *program) handleInputOpcode(prompt [] int64, index int, auto bool) (int64, error) {
+	var inputText string
+	if ! (len(prompt) > index) {
+		if auto {
+			return -1, fmt.Errorf("Input should be auto")
 		}
+		fmt.Println("Enter Code")
+		reader := bufio.NewReader(os.Stdin)
+		inputText, _ = reader.ReadString('\n')
+	} else {
+		return prompt[index], nil
 	}
+	code, err := strconv.ParseInt(strings.Trim(inputText, "\n"), 10, 64)
+	panic(err)
+	//fmt.Printf("Input = %d ", code)
+	return code, nil
 
-	return -1
 }
 
-func (p *program) updateResult(result int) {
+func (p *program) updateResult(result int64) (pos int64) {
 	if p.currentOpCode == ADD || p.currentOpCode == MUL || p.currentOpCode == LESS_THAN || p.currentOpCode == EQUALS {
-		pos := p.intCodes[p.pos+3]
+		pos = p.intCodes[p.pos+3]
 		p.intCodes[pos] = result
 	}
 
 	if p.currentOpCode == INPUT {
-		pos := p.intCodes[p.pos+1]
+		pos = p.intCodes[p.pos+1]
 		p.intCodes[pos] = result
 	}
 
 	if p.currentOpCode == OUTPUT {
-		pos := p.intCodes[p.pos+1]
-		fmt.Println(p.intCodes[pos])
+		pos = p.intCodes[p.pos+1]
+		p.output = p.intCodes[pos]
 	}
-
+	return pos
 }
 
-func (p *program) getLeftOperand(parameterType int) int {
+func (p *program) getLeftOperand(parameterType int) int64 {
 	if parameterType == 0 {
 		pos := p.intCodes[p.pos+1]
 		return p.intCodes[pos]
@@ -161,7 +175,7 @@ func (p *program) getLeftOperand(parameterType int) int {
 	return p.intCodes[p.pos+1]
 }
 
-func (p *program) getRightOperand(parameterType int) int {
+func (p *program) getRightOperand(parameterType int) int64 {
 	if parameterType == 0 {
 		pos := p.intCodes[p.pos+2]
 		return p.intCodes[pos]
@@ -190,7 +204,7 @@ func (p *program) advance() {
 		leftOperand := p.getLeftOperand(p.currentParamTypes[0])
 		rightOperand := p.getRightOperand(p.currentParamTypes[1])
 		if leftOperand != 0 {
-			p.pos = rightOperand
+			p.pos = int(rightOperand)
 		} else {
 			p.pos = p.pos + 3
 		}
@@ -200,7 +214,7 @@ func (p *program) advance() {
 		leftOperand := p.getLeftOperand(p.currentParamTypes[0])
 		rightOperand := p.getRightOperand(p.currentParamTypes[1])
 		if leftOperand == 0 {
-			p.pos = rightOperand
+			p.pos = int(rightOperand)
 		} else {
 			p.pos = p.pos + 3
 		}
@@ -214,19 +228,43 @@ func (p *program) advance() {
 
 func (p *program) reset() {
 	copy(p.intCodes, p.intCodesOriginal)
+	p.output = 0
+	p.outputCalculated = false
+	p.pos = 0
+	p.currentOpCode = 0
+	p.complete = false
+}
+
+func tryUntil(p program, match int64) int64 {
+	var intCodesOriginal []int64
+	intCodesOriginal = p.intCodesOriginal
+	for noun := 0; noun < 100; noun++ {
+		for verb := 0; verb < 100; verb++ {
+			prog := new(program)
+			prog.intCodes = append(prog.intCodes, intCodesOriginal...)
+			prog.intCodesOriginal = intCodesOriginal
+			prog.run(input{noun: int64(noun), verb: int64(verb)})
+			result := prog.intCodes[0]
+			if result == match {
+				return int64(100*noun + verb)
+			}
+		}
+	}
+
+	return -1
 }
 
 func day2() {
-	fmt.Println("Running Day 1 Solution")
+	fmt.Println("Running Day 2 ")
 	prog, err := readProgram(INPUT_FILE_2)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-
-	resultPart1 := prog.run(12, 2)
+	prog.run(input{noun: 12, verb: 2})
+	resultPart1 := prog.intCodes[0]
 	fmt.Println(resultPart1)
 
-	resultPart2 := prog.tryUntil(19690720)
+	resultPart2 := tryUntil(prog, 19690720)
 	fmt.Println(resultPart2)
 }
