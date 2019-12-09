@@ -18,6 +18,7 @@ const (
 	JUMP_IF_FALSE int = 6
 	LESS_THAN     int = 7
 	EQUALS        int = 8
+	RELATIVE_BASE int = 9
 	HALT          int = 99
 )
 
@@ -26,10 +27,12 @@ type program struct {
 	intCodesOriginal  []int64
 	pos               int
 	currentOpCode     int
-	currentParamTypes [2]int
+	currentParamTypes [3]int
 	complete          bool
 	output            int64
 	outputCalculated  bool
+	relativeBase      int64
+	allOutputs        []int64
 }
 
 type input struct {
@@ -70,6 +73,12 @@ func readProgram(file string) (program, error) {
 }
 
 func (p *program) run(input input) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered in f", r)
+			fmt.Println(len(p.intCodes))
+		}
+	}()
 	var (
 		inputCount int
 	)
@@ -82,12 +91,12 @@ func (p *program) run(input input) {
 		p.parseOpcode()
 
 		if p.currentOpCode == ADD {
-			result := p.getLeftOperand(p.currentParamTypes[0]) + p.getRightOperand(p.currentParamTypes[1])
+			result := *p.getFirstParameter() + *p.getSecondParameter()
 			p.updateResult(result)
 		}
 
 		if p.currentOpCode == MUL {
-			result := p.getLeftOperand(p.currentParamTypes[0]) * p.getRightOperand(p.currentParamTypes[1])
+			result := *p.getFirstParameter() * *p.getSecondParameter()
 			p.updateResult(result)
 		}
 
@@ -106,7 +115,7 @@ func (p *program) run(input input) {
 
 		if p.currentOpCode == LESS_THAN {
 			var result int64
-			if p.getLeftOperand(p.currentParamTypes[0]) < p.getRightOperand(p.currentParamTypes[1]) {
+			if *p.getFirstParameter() < *p.getSecondParameter() {
 				result = 1
 			}
 			p.updateResult(result)
@@ -114,10 +123,14 @@ func (p *program) run(input input) {
 
 		if p.currentOpCode == EQUALS {
 			var result int64
-			if p.getLeftOperand(p.currentParamTypes[0]) == p.getRightOperand(p.currentParamTypes[1]) {
+			if *p.getFirstParameter() == *p.getSecondParameter() {
 				result = 1
 			}
 			p.updateResult(result)
+		}
+
+		if p.currentOpCode == RELATIVE_BASE {
+			p.handleRelativeBaseOpCode()
 		}
 
 		if p.currentOpCode == HALT {
@@ -130,6 +143,18 @@ func (p *program) run(input input) {
 	}
 }
 
+func (p *program) extendMemory(targetAddr int64) {
+	requiredSize := int(targetAddr) + 1
+	if requiredSize > len(p.intCodes) {
+		newMem := make([]int64, requiredSize-len(p.intCodes))
+		p.intCodes = append(p.intCodes, newMem...)
+	}
+}
+
+func (p *program) handleRelativeBaseOpCode() {
+	p.relativeBase = p.relativeBase + *p.getFirstParameter()
+}
+
 func (p *program) handleInputOpcode(prompt [] int64, index int, auto bool) (int64, error) {
 	var inputText string
 	if ! (len(prompt) > index) {
@@ -139,56 +164,76 @@ func (p *program) handleInputOpcode(prompt [] int64, index int, auto bool) (int6
 		fmt.Println("Enter Code")
 		reader := bufio.NewReader(os.Stdin)
 		inputText, _ = reader.ReadString('\n')
+		inputText = strings.Trim(inputText, "\n")
+		code, err := strconv.Atoi(inputText)
+		if err != nil {
+			panic(err)
+		}
+		return int64(code), nil
 	} else {
 		return prompt[index], nil
 	}
-	code, err := strconv.ParseInt(strings.Trim(inputText, "\n"), 10, 64)
-	panic(err)
-	//fmt.Printf("Input = %d ", code)
-	return code, nil
 
 }
 
-func (p *program) updateResult(result int64) (pos int64) {
+func (p *program) updateResult(result int64) {
+	var resultPtr *int64
 	if p.currentOpCode == ADD || p.currentOpCode == MUL || p.currentOpCode == LESS_THAN || p.currentOpCode == EQUALS {
-		pos = p.intCodes[p.pos+3]
-		p.intCodes[pos] = result
+		resultPtr = p.getThirdParameter()
+		*resultPtr = result
 	}
 
 	if p.currentOpCode == INPUT {
-		pos = p.intCodes[p.pos+1]
-		p.intCodes[pos] = result
+		resultPtr = p.getFirstParameter()
+		*resultPtr = result
 	}
 
 	if p.currentOpCode == OUTPUT {
-		pos = p.intCodes[p.pos+1]
-		p.output = p.intCodes[pos]
+		resultPtr = p.getFirstParameter()
+		p.output = *resultPtr
+		p.allOutputs = append(p.allOutputs, p.output)
 	}
-	return pos
 }
 
-func (p *program) getLeftOperand(parameterType int) int64 {
-	if parameterType == 0 {
-		pos := p.intCodes[p.pos+1]
-		return p.intCodes[pos]
-	}
-	return p.intCodes[p.pos+1]
+func (p *program) getFirstParameter() *int64 {
+	return p.getParameter(p.currentParamTypes[0], 1)
 }
 
-func (p *program) getRightOperand(parameterType int) int64 {
+func (p *program) getSecondParameter() *int64 {
+	return p.getParameter(p.currentParamTypes[1], 2)
+}
+
+func (p *program) getThirdParameter() *int64 {
+	return p.getParameter(p.currentParamTypes[2], 3)
+}
+
+func (p *program) getParameter(parameterType, idx int) *int64 {
 	if parameterType == 0 {
-		pos := p.intCodes[p.pos+2]
-		return p.intCodes[pos]
+		pos := p.intCodes[p.pos+idx]
+		p.extendMemory(pos)
+		return &p.intCodes[pos]
 	}
-	return p.intCodes[p.pos+2]
+	if parameterType == 1 {
+		pos := int64(p.pos + idx)
+		p.extendMemory(pos)
+		return &p.intCodes[pos]
+	}
+	if parameterType == 2 {
+		pos := p.intCodes[p.pos+idx] + p.relativeBase
+		p.extendMemory(pos)
+		return &p.intCodes[pos]
+	}
+	return &p.intCodes[p.pos+idx]
+
 }
 
 func (p *program) parseOpcode() {
 	intCode := p.intCodes[p.pos]
-	paddedIntCode := fmt.Sprintf("000%d", intCode)
+	paddedIntCode := fmt.Sprintf("0000%d", intCode)
 	p.currentOpCode, _ = strconv.Atoi(paddedIntCode[len(paddedIntCode)-2:])
 	p.currentParamTypes[0], _ = strconv.Atoi(paddedIntCode[len(paddedIntCode)-3 : len(paddedIntCode)-2])
 	p.currentParamTypes[1], _ = strconv.Atoi(paddedIntCode[len(paddedIntCode)-4 : len(paddedIntCode)-3])
+	p.currentParamTypes[2], _ = strconv.Atoi(paddedIntCode[len(paddedIntCode)-5 : len(paddedIntCode)-4])
 }
 
 func (p *program) advance() {
@@ -201,8 +246,8 @@ func (p *program) advance() {
 	}
 
 	if p.currentOpCode == JUMP_IF_TRUE {
-		leftOperand := p.getLeftOperand(p.currentParamTypes[0])
-		rightOperand := p.getRightOperand(p.currentParamTypes[1])
+		leftOperand := *p.getFirstParameter()
+		rightOperand := *p.getSecondParameter()
 		if leftOperand != 0 {
 			p.pos = int(rightOperand)
 		} else {
@@ -211,8 +256,8 @@ func (p *program) advance() {
 	}
 
 	if p.currentOpCode == JUMP_IF_FALSE {
-		leftOperand := p.getLeftOperand(p.currentParamTypes[0])
-		rightOperand := p.getRightOperand(p.currentParamTypes[1])
+		leftOperand := *p.getFirstParameter()
+		rightOperand := *p.getSecondParameter()
 		if leftOperand == 0 {
 			p.pos = int(rightOperand)
 		} else {
@@ -222,6 +267,10 @@ func (p *program) advance() {
 
 	if p.currentOpCode == LESS_THAN || p.currentOpCode == EQUALS {
 		p.pos = p.pos + 4
+	}
+
+	if p.currentOpCode == RELATIVE_BASE {
+		p.pos = p.pos + 2
 	}
 
 }
