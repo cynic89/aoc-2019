@@ -284,6 +284,9 @@ func (p *program) reset() {
 	p.pos = 0
 	p.currentOpCode = 0
 	p.complete = false
+	p.relativeBase = 0
+	p.allOutputs = []int64{}
+	p.lastRunOuputs = []int64{}
 }
 
 func tryUntil(p program, match int64) int64 {
