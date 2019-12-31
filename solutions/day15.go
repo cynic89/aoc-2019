@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/cynic89/aoc-2019/util"
+	"os"
 )
 
 const (
@@ -222,8 +223,12 @@ func fillCanvas() {
 
 func day15() {
 	fmt.Println("Running Day 15")
-	prog, _ := readProgram(INPUT_FILE_DAY_15)
-	traverse(&prog)
+	p, err := readProgram(INPUT_FILE_DAY_15)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	traverse(&p)
 	fmt.Println(spreadOxygen())
 	fillCanvas()
 }

@@ -41,18 +41,21 @@ func readSignalsPart2() ([]int, error) {
 
 	scanner := bufio.NewScanner(f)
 	var signals []int
+	var text string
 	for scanner.Scan() {
-		text := scanner.Text()
-		for _, c := range text {
-			signals = append(signals, int(c)-48)
+		text = scanner.Text()
+		break
+	}
+	fft := ""
+	for i := 0; i < 2000; i++ {
+		fft = fft+text
+	}
+	for i, c := range fft {
+		signals = append(signals, int(c)-48)
+		if i / 100000 >=1 && i%100000==0 {
+			fmt.Println(i)
 		}
 	}
-
-	for i := 0; i < 10000; i++ {
-		signals = append(signals, signals...)
-		fmt.Println(i)
-	}
-
 	return signals, nil
 
 }
@@ -75,12 +78,12 @@ func pattern(digit int, size int) []int {
 }
 
 func output(input []int, noOfDigits int) (results []int) {
-
+	var initialPattern = []int{0, 1, 0, -1}
 	for digit := 1; digit <= noOfDigits; digit++ {
 		var result int
-		pattern := pattern(digit, len(input))
 		for i, ip := range input {
-			result += ip * pattern[i+1]
+			idx := ((i+1)/digit)%4
+			result += ip * initialPattern[idx]
 		}
 		results = append(results, util.Abs(result%10))
 	}
@@ -92,6 +95,7 @@ func output(input []int, noOfDigits int) (results []int) {
 func outputAfterPhases(input []int, noOfDigits, phases int) []int {
 	op := input
 	for i := 0; i < phases; i++ {
+		fmt.Println(i)
 		op = output(op, noOfDigits)
 	}
 
@@ -108,6 +112,7 @@ func part1() {
 	fmt.Println(len(signals))
 	op := outputAfterPhases(signals, len(signals), 100)
 
+	fmt.Println()
 	for i := 0; i < 8; i++ {
 		fmt.Print(op[i])
 	}
@@ -123,13 +128,38 @@ func part2() {
 
 	op := outputAfterPhases(signals, len(signals), 100)
 
-	for i := 0; i < 8; i++ {
+	offset := len(op) / 2
+	toCheck := 5972877
+	var skip int
+	fmt.Println(toCheck % len(op))
+	c := 1
+	for {
+		end := len(op) * c
+		start := end - offset
+		if toCheck >= start && toCheck < end {
+			fmt.Println("found")
+			fmt.Println(start)
+			skip = toCheck - start
+			break
+		}
+
+		if start > toCheck {
+			break
+		}
+
+		c++
+	}
+
+	fmt.Println(skip)
+
+	for i := len(op)/2 + skip; i < len(op)/2+skip+8; i++ {
 		fmt.Print(op[i])
 	}
+
 	fmt.Println()
 }
 
 func day16() {
-	part2()
+	part1()
 
 }
