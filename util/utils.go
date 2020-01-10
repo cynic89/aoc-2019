@@ -40,3 +40,33 @@ func (u Coordinates) Angle(v Coordinates) float64 {
 	return rad
 
 }
+
+func LCMOf(nos []int64) int64 {
+	max := max(nos)
+	factor := 2
+	var lcm int64
+	for {
+		lcm = max * int64(factor)
+		for i, n := range nos {
+			if lcm%n == 0 {
+				if i == (len(nos) - 1) {
+					return lcm
+				}
+			} else {
+				factor++
+				break
+			}
+		}
+
+	}
+}
+
+func max(nos []int64) int64 {
+	var max int64 = 0
+	for _, n := range nos {
+		if n > max {
+			max = n
+		}
+	}
+	return max
+}
